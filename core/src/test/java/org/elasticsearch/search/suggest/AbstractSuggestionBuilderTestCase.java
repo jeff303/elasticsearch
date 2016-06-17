@@ -19,7 +19,11 @@
 
 package org.elasticsearch.search.suggest;
 
+import org.elasticsearch.Version;
+import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.common.ParseFieldMatcher;
+import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.compress.CompressedXContent;
 import org.elasticsearch.common.io.stream.BytesStreamOutput;
 import org.elasticsearch.common.io.stream.NamedWriteableAwareStreamInput;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
@@ -31,24 +35,59 @@ import org.elasticsearch.common.xcontent.XContentFactory;
 import org.elasticsearch.common.xcontent.XContentHelper;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.common.xcontent.XContentType;
+import org.elasticsearch.env.Environment;
+import org.elasticsearch.index.Index;
+import org.elasticsearch.index.IndexSettings;
+import org.elasticsearch.index.analysis.AnalysisService;
+import org.elasticsearch.index.analysis.AnalyzerProvider;
+import org.elasticsearch.index.analysis.EnglishAnalyzerProvider;
+import org.elasticsearch.index.mapper.*;
+import org.elasticsearch.index.mapper.core.TextFieldMapper;
+import org.elasticsearch.index.mapper.internal.ParentFieldMapper;
 import org.elasticsearch.index.query.QueryParseContext;
+import org.elasticsearch.index.query.QueryShardContext;
+import org.elasticsearch.index.similarity.SimilarityService;
+import org.elasticsearch.indices.mapper.MapperRegistry;
 import org.elasticsearch.indices.query.IndicesQueriesRegistry;
+import org.elasticsearch.script.MockScriptEngine;
+import org.elasticsearch.script.ScriptContextRegistry;
+import org.elasticsearch.script.ScriptEngineRegistry;
+import org.elasticsearch.script.ScriptEngineService;
+import org.elasticsearch.script.ScriptMode;
+import org.elasticsearch.script.ScriptService;
+import org.elasticsearch.script.ScriptSettings;
 import org.elasticsearch.search.SearchModule;
+import org.elasticsearch.search.suggest.phrase.DirectCandidateGeneratorBuilder;
+import org.elasticsearch.search.suggest.phrase.PhraseSuggestionBuilder;
+import org.elasticsearch.search.suggest.term.TermSuggestionBuilder;
 import org.elasticsearch.test.ESTestCase;
+import org.elasticsearch.test.IndexSettingsModule;
+import org.elasticsearch.watcher.ResourceWatcherService;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 
 import java.io.IOException;
+import java.util.*;
+import java.util.function.Supplier;
+
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
 
-public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBuilder<SB>> extends ESTestCase {
+public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBuilder<SB>, CB extends SuggestionSearchContext.SuggestionContext> extends ESTestCase {
 
     private static final int NUMBER_OF_TESTBUILDERS = 20;
     protected static NamedWriteableRegistry namedWriteableRegistry;
     protected static IndicesQueriesRegistry queriesRegistry;
     protected static ParseFieldMatcher parseFieldMatcher;
     protected static Suggesters suggesters;
+    protected static MapperService mapperService;
+    private static IndexSettings idxSettings;
+    private static AnalysisService analysisService;
+    private static SimilarityService similarityService;
+    private static ScriptService scriptService;
+    private static MapperRegistry mapperRegistry;
+    private static Supplier<QueryShardContext> queryShardContextSupplier;
+    private static Settings commonSettings;
 
     /**
      * setup for the whole base test class
@@ -60,6 +99,92 @@ public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBui
         queriesRegistry = searchModule.getQueryParserRegistry();
         suggesters = searchModule.getSuggesters();
         parseFieldMatcher = ParseFieldMatcher.STRICT;
+
+        commonSettings = Settings.builder().put(IndexMetaData.SETTING_VERSION_CREATED, Version.CURRENT).
+            put(Environment.PATH_HOME_SETTING.getKey(), createTempDir().toString()).build();
+
+        Settings indexSettings = Settings.builder()
+            .put(commonSettings).build();
+        Index index = new Index(randomAsciiOfLengthBetween(1, 10), "_na_");
+        idxSettings = IndexSettingsModule.newIndexSettings(index, indexSettings);
+
+        SuggestBuilder suggestBuilder = new SuggestBuilder();
+        suggestBuilder.setGlobalText(randomAsciiOfLengthBetween(10, 20));
+        TermSuggestionBuilder suggestionBuilder = new TermSuggestionBuilder("field1");
+        suggestBuilder.addSuggestion("test_suggest", suggestionBuilder);
+
+        IndicesQueriesRegistry indicesQueriesRegistry = new IndicesQueriesRegistry();
+
+        similarityService = new SimilarityService(idxSettings, Collections.emptyMap());
+
+        Map<String, Mapper.TypeParser> mapperParsers = new HashMap<>();
+        mapperParsers.put(TextFieldMapper.CONTENT_TYPE, new TextFieldMapper.TypeParser());
+        Map<String, MetadataFieldMapper.TypeParser> metadataParsers = new HashMap<>();
+        metadataParsers.put(ParentFieldMapper.CONTENT_TYPE, new ParentFieldMapper.TypeParser());
+        mapperRegistry = new MapperRegistry(mapperParsers, metadataParsers);
+
+        Set<ScriptEngineService> engines = new HashSet<>();
+        engines.add(new MockScriptEngine());
+        engines.add(new MockMustacheScriptEngine());
+
+        List<ScriptEngineRegistry.ScriptEngineRegistration> registrations = new LinkedList<>();
+        registrations.add(new ScriptEngineRegistry.ScriptEngineRegistration(MockScriptEngine.class, MockScriptEngine.NAME, ScriptMode.ON));
+        registrations.add(new ScriptEngineRegistry.ScriptEngineRegistration(MockMustacheScriptEngine.class, "mustache", ScriptMode.ON));
+        ScriptEngineRegistry scriptEngineRegistry = new ScriptEngineRegistry(registrations);
+        ScriptContextRegistry scriptContextRegistry = new ScriptContextRegistry(Collections.emptyList());
+
+        scriptService = new ScriptService(commonSettings, new Environment(commonSettings), engines,
+            new ResourceWatcherService(commonSettings, null),
+            scriptEngineRegistry,
+            scriptContextRegistry,
+            new ScriptSettings(scriptEngineRegistry, scriptContextRegistry));
+
+        queryShardContextSupplier = () -> new QueryShardContext(idxSettings, null, null, mapperService, similarityService,
+            scriptService, indicesQueriesRegistry, null, null, null, null) {
+            @Override
+            public MappedFieldType fieldMapper(String name) {
+                TextFieldMapper.Builder builder = new TextFieldMapper.Builder(name);
+                return builder.build(new Mapper.BuilderContext(idxSettings.getSettings(), new ContentPath(1))).fieldType();
+            }
+        };
+
+        resetMapperService(null, null);
+    }
+
+    private static class MockMustacheScriptEngine extends MockScriptEngine {
+    }
+
+    private static void resetMapperService(List<String> analyzerNames, Map<String, String> fields) throws IOException {
+
+        Map<String, AnalyzerProvider> analyzerProviders = new HashMap<>();
+        Settings envSettings = Settings.builder().put(commonSettings).build();
+        Settings engAnProvSettings = Settings.builder().put(commonSettings).build();
+        analyzerProviders.put("default", new EnglishAnalyzerProvider(idxSettings, new Environment(envSettings), "default", engAnProvSettings));
+        if (analyzerNames != null) {
+            for (String analyzerName : analyzerNames) {
+                analyzerProviders.put(analyzerName, new EnglishAnalyzerProvider(idxSettings, new Environment(envSettings), "default", engAnProvSettings));
+            }
+        }
+        analysisService = new AnalysisService(idxSettings,
+            analyzerProviders,
+            Collections.emptyMap(),
+            Collections.emptyMap(),
+            Collections.emptyMap()
+        );
+
+        mapperService = new MapperService(idxSettings, analysisService,
+            similarityService, mapperRegistry, queryShardContextSupplier);
+
+        if (fields != null) {
+            XContentBuilder mapperBuilder = XContentFactory.jsonBuilder().startObject().startObject("type")
+                .startObject("properties");
+            for (Map.Entry<String, String> field : fields.entrySet()) {
+                mapperBuilder.startObject(field.getKey()).field("type", field.getValue()).endObject();
+            }
+            String mapping = mapperBuilder.endObject().endObject().endObject().string();
+            mapperService.merge("type",
+                new CompressedXContent(mapping), MapperService.MergeReason.MAPPING_UPDATE, false);
+        }
     }
 
     @AfterClass
@@ -67,6 +192,13 @@ public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBui
         namedWriteableRegistry = null;
         suggesters = null;
         queriesRegistry = null;
+        analysisService = null;
+        similarityService = null;
+        mapperService = null;
+        mapperRegistry = null;
+        idxSettings = null;
+        commonSettings = null;
+        scriptService = null;
     }
 
     /**
@@ -95,6 +227,9 @@ public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBui
         maybeSet(randomSuggestion::prefix, randomAsciiOfLengthBetween(2, 20));
         maybeSet(randomSuggestion::regex, randomAsciiOfLengthBetween(2, 20));
         maybeSet(randomSuggestion::analyzer, randomAsciiOfLengthBetween(2, 20));
+        if (!Strings.isNullOrEmpty(randomSuggestion.analyzer())) {
+
+        }
         maybeSet(randomSuggestion::size, randomIntBetween(1, 20));
         maybeSet(randomSuggestion::shardSize, randomIntBetween(1, 20));
     }
@@ -165,6 +300,44 @@ public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBui
             assertEquals(suggestionBuilder.hashCode(), secondSuggestionBuilder.hashCode());
         }
     }
+
+    public void testSearchContext() throws IOException {
+        for (int runs = 0; runs < NUMBER_OF_TESTBUILDERS; runs++) {
+            SB suggestionBuilder = randomTestBuilder();
+            List<String> analyzers = new LinkedList<>();
+            if (suggestionBuilder.analyzer() != null) {
+                analyzers.add(suggestionBuilder.analyzer());
+            }
+            if (suggestionBuilder instanceof PhraseSuggestionBuilder) {
+                PhraseSuggestionBuilder psb = (PhraseSuggestionBuilder) suggestionBuilder;
+                Map<String, List<PhraseSuggestionBuilder.CandidateGenerator>> generators = psb.getCandidateGenerators();
+                if (generators != null && generators.size() > 0) {
+                    for (Map.Entry<String, List<PhraseSuggestionBuilder.CandidateGenerator>> generatorEntry : generators.entrySet()) {
+                        for (PhraseSuggestionBuilder.CandidateGenerator generator : generatorEntry.getValue()) {
+                            if (generator instanceof DirectCandidateGeneratorBuilder) {
+                                DirectCandidateGeneratorBuilder genBuilder = (DirectCandidateGeneratorBuilder) generator;
+                                String preFilter = genBuilder.getPreFilter();
+                                if (preFilter != null) {
+                                    analyzers.add(preFilter);
+                                }
+                                String postFilter = genBuilder.getPostFilter();
+                                if (postFilter != null) {
+                                    analyzers.add(postFilter);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Map<String, String> fields = new HashMap<>();
+            fields.put(suggestionBuilder.field(), "text");
+            resetMapperService(analyzers, fields);
+
+            assertSuggestionSearchContext(suggestionBuilder, (CB) suggestionBuilder.build(queryShardContextSupplier.get()));
+        }
+    }
+
+    protected abstract void assertSuggestionSearchContext(SB suggestionBuilder, CB context);
 
     /**
      * Subclasses can override this method and return a set of fields which should be protected from

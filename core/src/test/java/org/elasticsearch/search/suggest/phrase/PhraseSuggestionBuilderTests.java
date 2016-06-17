@@ -19,6 +19,8 @@
 
 package org.elasticsearch.search.suggest.phrase;
 
+import org.elasticsearch.common.Strings;
+import org.elasticsearch.index.analysis.NamedAnalyzer;
 import org.elasticsearch.script.Template;
 import org.elasticsearch.search.suggest.AbstractSuggestionBuilderTestCase;
 
@@ -26,10 +28,28 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class PhraseSuggestionBuilderTests extends AbstractSuggestionBuilderTestCase<PhraseSuggestionBuilder> {
+import static org.hamcrest.Matchers.instanceOf;
+
+public class PhraseSuggestionBuilderTests extends AbstractSuggestionBuilderTestCase<PhraseSuggestionBuilder, PhraseSuggestionContext> {
     @Override
     protected PhraseSuggestionBuilder randomSuggestionBuilder() {
         return randomPhraseSuggestionBuilder();
+    }
+
+    @Override
+    protected void assertSuggestionSearchContext(PhraseSuggestionBuilder suggestionBuilder, PhraseSuggestionContext context) {
+        assertSame(suggestionBuilder.field(), context.getField());
+        final String analyzer = suggestionBuilder.analyzer();
+        if (!Strings.isNullOrEmpty(analyzer)) {
+            assertThat(context.getAnalyzer(), instanceOf(NamedAnalyzer.class));
+            assertSame(analyzer, ((NamedAnalyzer) context.getAnalyzer()).name());
+        }
+        if (suggestionBuilder.gramSize() != null) {
+            assertSame(suggestionBuilder.gramSize(), context.gramSize());
+        }
+        if (suggestionBuilder.size() != null) {
+            assertSame(suggestionBuilder.size(), context.getSize());
+        }
     }
 
     public static PhraseSuggestionBuilder randomPhraseSuggestionBuilder() {
@@ -156,7 +176,7 @@ public class PhraseSuggestionBuilderTests extends AbstractSuggestionBuilderTestC
         assertEquals("suggestion field name is empty", e.getMessage());
 
         PhraseSuggestionBuilder builder = new PhraseSuggestionBuilder(randomAsciiOfLengthBetween(2, 20));
- 
+
         e = expectThrows(IllegalArgumentException.class, () -> builder.gramSize(0));
         assertEquals("gramSize must be >= 1", e.getMessage());
         e = expectThrows(IllegalArgumentException.class, () -> builder.gramSize(-1));

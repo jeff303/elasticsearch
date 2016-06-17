@@ -21,6 +21,8 @@ package org.elasticsearch.search.suggest.term;
 
 import com.carrotsearch.randomizedtesting.generators.RandomStrings;
 
+import org.elasticsearch.common.Strings;
+import org.elasticsearch.index.analysis.NamedAnalyzer;
 import org.elasticsearch.search.suggest.AbstractSuggestionBuilderTestCase;
 import org.elasticsearch.search.suggest.DirectSpellcheckerSettings;
 import org.elasticsearch.search.suggest.SortBy;
@@ -39,11 +41,12 @@ import static org.elasticsearch.search.suggest.DirectSpellcheckerSettings.DEFAUL
 import static org.elasticsearch.search.suggest.DirectSpellcheckerSettings.DEFAULT_MIN_WORD_LENGTH;
 import static org.elasticsearch.search.suggest.DirectSpellcheckerSettings.DEFAULT_PREFIX_LENGTH;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.instanceOf;
 
 /**
  * Test the {@link TermSuggestionBuilder} class.
  */
-public class TermSuggestionBuilderTests extends AbstractSuggestionBuilderTestCase<TermSuggestionBuilder> {
+public class TermSuggestionBuilderTests extends AbstractSuggestionBuilderTestCase<TermSuggestionBuilder, TermSuggestionContext> {
 
     /**
      *  creates random suggestion builder, renders it to xContent and back to new instance that should be equal to original
@@ -51,6 +54,16 @@ public class TermSuggestionBuilderTests extends AbstractSuggestionBuilderTestCas
     @Override
     protected TermSuggestionBuilder randomSuggestionBuilder() {
         return randomTermSuggestionBuilder();
+    }
+
+    @Override
+    protected void assertSuggestionSearchContext(TermSuggestionBuilder suggestionBuilder, TermSuggestionContext context) {
+        assertSame(suggestionBuilder.field(), context.getField());
+        final String analyzer = suggestionBuilder.analyzer();
+        if (!Strings.isNullOrEmpty(analyzer)) {
+            assertThat(context.getAnalyzer(), instanceOf(NamedAnalyzer.class));
+            assertSame(analyzer, ((NamedAnalyzer) context.getAnalyzer()).name());
+        }
     }
 
     /**

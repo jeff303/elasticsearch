@@ -39,13 +39,18 @@ import java.util.Locale;
 import java.util.Map;
 import static org.hamcrest.Matchers.containsString;
 
-public class CompletionSuggesterBuilderTests extends AbstractSuggestionBuilderTestCase<CompletionSuggestionBuilder> {
+public class CompletionSuggesterBuilderTests extends AbstractSuggestionBuilderTestCase<CompletionSuggestionBuilder, CompletionSuggestionContext> {
 
     private static final String[] SHUFFLE_PROTECTED_FIELDS = new String[] {CompletionSuggestionBuilder.CONTEXTS_FIELD.getPreferredName()};
 
     @Override
     protected CompletionSuggestionBuilder randomSuggestionBuilder() {
         return randomCompletionSuggestionBuilder();
+    }
+
+    @Override
+    protected void assertSuggestionSearchContext(CompletionSuggestionBuilder suggestionBuilder, CompletionSuggestionContext context) {
+        assertSame(suggestionBuilder.shardSize(), context.getShardSize());
     }
 
     public static CompletionSuggestionBuilder randomCompletionSuggestionBuilder() {

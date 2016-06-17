@@ -307,6 +307,10 @@ public final class DirectCandidateGeneratorBuilder implements CandidateGenerator
         return this;
     }
 
+    public String getPreFilter() {
+        return preFilter;
+    }
+
     /**
      * Sets a filter (analyzer) that is applied to each of the generated tokens
      * before they are passed to the actual phrase scorer.
@@ -314,6 +318,10 @@ public final class DirectCandidateGeneratorBuilder implements CandidateGenerator
     public DirectCandidateGeneratorBuilder postFilter(String postFilter) {
         this.postFilter = postFilter;
         return this;
+    }
+
+    public String getPostFilter() {
+        return postFilter;
     }
 
     /**

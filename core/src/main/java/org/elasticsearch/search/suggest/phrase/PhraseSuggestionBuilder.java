@@ -311,6 +311,10 @@ public class PhraseSuggestionBuilder extends SuggestionBuilder<PhraseSuggestionB
         return this;
     }
 
+    public Map<String, List<CandidateGenerator>> getCandidateGenerators() {
+        return Collections.unmodifiableMap(this.generators);
+    }
+
     /**
      * If set to <code>true</code> the phrase suggester will fail if the analyzer only
      * produces ngrams. the default it <code>true</code>.
