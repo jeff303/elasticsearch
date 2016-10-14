@@ -19,16 +19,19 @@
 
 package org.elasticsearch.search.suggest.phrase;
 
-import org.elasticsearch.common.Strings;
-import org.elasticsearch.index.analysis.NamedAnalyzer;
+import org.apache.lucene.analysis.Analyzer;
 import org.elasticsearch.script.Template;
 import org.elasticsearch.search.suggest.AbstractSuggestionBuilderTestCase;
+import org.elasticsearch.search.suggest.DirectSpellcheckerSettings;
+import org.elasticsearch.search.suggest.SortBy;
+import org.elasticsearch.search.suggest.SuggestUtils;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
-import static org.hamcrest.Matchers.instanceOf;
+import static org.hamcrest.Matchers.hasSize;
 
 public class PhraseSuggestionBuilderTests extends AbstractSuggestionBuilderTestCase<PhraseSuggestionBuilder, PhraseSuggestionContext> {
     @Override
@@ -38,17 +41,128 @@ public class PhraseSuggestionBuilderTests extends AbstractSuggestionBuilderTestC
 
     @Override
     protected void assertSuggestionSearchContext(PhraseSuggestionBuilder suggestionBuilder, PhraseSuggestionContext context) {
-        assertSame(suggestionBuilder.field(), context.getField());
-        final String analyzer = suggestionBuilder.analyzer();
-        if (!Strings.isNullOrEmpty(analyzer)) {
-            assertThat(context.getAnalyzer(), instanceOf(NamedAnalyzer.class));
-            assertSame(analyzer, ((NamedAnalyzer) context.getAnalyzer()).name());
-        }
         if (suggestionBuilder.gramSize() != null) {
             assertSame(suggestionBuilder.gramSize(), context.gramSize());
+        } else {
+            assertSame(PhraseSuggestionContext.DEFAULT_GRAM_SIZE, context.gramSize());
         }
-        if (suggestionBuilder.size() != null) {
-            assertSame(suggestionBuilder.size(), context.getSize());
+
+        Map<String, List<PhraseSuggestionBuilder.CandidateGenerator>> generators = suggestionBuilder.getCandidateGenerators();
+        if (generators == null || generators.size() == 0) {
+            assertThat(context.generators(), hasSize(1));
+            PhraseSuggestionContext.DirectCandidateGenerator defaultGenerator = context.generators().get(0);
+            assertEquals(suggestionBuilder.field(), defaultGenerator.field());
+        } else {
+            for (Map.Entry<String, List<PhraseSuggestionBuilder.CandidateGenerator>> entry : generators.entrySet()) {
+                if (!entry.getKey().equals(DirectCandidateGeneratorBuilder.TYPE)) {
+                    continue;
+                }
+                final List<PhraseSuggestionBuilder.CandidateGenerator> builderGens = entry.getValue();
+                for (int i = 0; i< builderGens.size(); i++) {
+                    PhraseSuggestionBuilder.CandidateGenerator builderGen = builderGens.get(i);
+                    DirectCandidateGeneratorBuilder expectedGen = (DirectCandidateGeneratorBuilder) builderGen;
+                    boolean found = false;
+                    for (PhraseSuggestionContext.DirectCandidateGenerator ctxGen : context.generators()) {
+                        if (generatorsMatch(expectedGen, ctxGen)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    assertTrue(String.format("Did not find direct generator at position %d from builder", i), found);
+                }
+            }
+        }
+    }
+
+    private static boolean generatorsMatch(DirectCandidateGeneratorBuilder expectedGen, PhraseSuggestionContext.DirectCandidateGenerator ctxGen) {
+        Class<?> expectedDistanceCls;
+        if (expectedGen.getStringDistance() != null) {
+            expectedDistanceCls = SuggestUtils.resolveDistance(expectedGen.getStringDistance()).getClass();
+        } else {
+            expectedDistanceCls = DirectSpellcheckerSettings.DEFAULT_STRING_DISTANCE.getClass();
+        }
+
+        if (!ctxGen.stringDistance().getClass().equals(expectedDistanceCls)) {
+            return false;
+        }
+        if (!analyzersEqual(expectedGen.getPreFilter(), ctxGen.preFilter())) {
+            return false;
+        }
+        if (!analyzersEqual(expectedGen.getPostFilter(), ctxGen.postFilter())) {
+            return false;
+        }
+        String expectedSuggestMode = expectedGen.getSuggestMode() != null ?
+            expectedGen.getSuggestMode() :
+            //TODO: constant? needs to be input to SuggestUtils.resolveSuggestMode leading to DirectSpellcheckerSettings.DEFAULT_SUGGEST_MODE
+            "missing";
+        if (!SuggestUtils.resolveSuggestMode(expectedSuggestMode).equals(ctxGen.suggestMode())) {
+            return false;
+        }
+        if (!floatEqualOrDefault(expectedGen.getAccuracy(), DirectSpellcheckerSettings.DEFAULT_ACCURACY,
+            ctxGen.accuracy(), 0.0f)) {
+            return false;
+        }
+        if (!intEqualOrDefault(expectedGen.getMaxEdits(), DirectSpellcheckerSettings.DEFAULT_MAX_EDITS,
+            ctxGen.maxEdits())) {
+            return false;
+        }
+        if (!intEqualOrDefault(expectedGen.getSize(), PhraseSuggestionContext.DirectCandidateGenerator.DEFAULT_SIZE,
+            ctxGen.size())) {
+            return false;
+        }
+        if (expectedGen.getSort() != null) {
+            if (!ctxGen.sort().equals(SortBy.resolve(expectedGen.getSort()))) {
+                return false;
+            }
+        } else if (!ctxGen.sort().equals(DirectSpellcheckerSettings.DEFAULT_SORT)) {
+            return false;
+        }
+        if (!intEqualOrDefault(expectedGen.getMaxInspections(), DirectSpellcheckerSettings.DEFAULT_MAX_INSPECTIONS,
+            ctxGen.maxInspections())) {
+            return false;
+        }
+        if (!floatEqualOrDefault(expectedGen.getMaxTermFreq(), DirectSpellcheckerSettings.DEFAULT_MAX_TERM_FREQ,
+            ctxGen.maxTermFreq(), 0.0f)) {
+            return false;
+        }
+        if (!intEqualOrDefault(expectedGen.getPrefixLength(), DirectSpellcheckerSettings.DEFAULT_PREFIX_LENGTH,
+            ctxGen.prefixLength())) {
+            return false;
+        }
+        if (!intEqualOrDefault(expectedGen.getMinWordLength(), DirectSpellcheckerSettings.DEFAULT_MIN_WORD_LENGTH,
+            ctxGen.minWordLength())) {
+            return false;
+        }
+        if (!floatEqualOrDefault(expectedGen.getMinDocFreq(), DirectSpellcheckerSettings.DEFAULT_MIN_DOC_FREQ,
+            ctxGen.minDocFreq(), 0.0f)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static boolean intEqualOrDefault(Integer expected, int nullValue, int actual) {
+        if (expected == null) {
+            return actual == nullValue;
+        } else {
+            return actual == expected.intValue();
+        }
+    }
+
+    private static boolean floatEqualOrDefault(Float expected, float nullValue, float actual, float tolerance) {
+        float expectedVal = expected != null ? expected : nullValue;
+        return Math.abs(expectedVal - actual) <= tolerance;
+    }
+
+    private static boolean analyzersEqual(String name, Analyzer analyzer) {
+        if (name != null) {
+            if (analyzer != null &&
+                analyzer.equals(mapperService.analysisService().analyzer(name))) {
+                return true;
+            }
+            return false;
+        } else {
+            return analyzer == null;
         }
     }
 

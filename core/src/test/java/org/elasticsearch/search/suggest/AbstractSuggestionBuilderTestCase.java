@@ -19,6 +19,7 @@
 
 package org.elasticsearch.search.suggest;
 
+import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.Version;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.common.ParseFieldMatcher;
@@ -41,6 +42,7 @@ import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.analysis.AnalysisService;
 import org.elasticsearch.index.analysis.AnalyzerProvider;
 import org.elasticsearch.index.analysis.EnglishAnalyzerProvider;
+import org.elasticsearch.index.analysis.NamedAnalyzer;
 import org.elasticsearch.index.mapper.*;
 import org.elasticsearch.index.mapper.core.TextFieldMapper;
 import org.elasticsearch.index.mapper.internal.ParentFieldMapper;
@@ -57,6 +59,7 @@ import org.elasticsearch.script.ScriptMode;
 import org.elasticsearch.script.ScriptService;
 import org.elasticsearch.script.ScriptSettings;
 import org.elasticsearch.search.SearchModule;
+import org.elasticsearch.search.suggest.completion.CompletionSuggestionBuilder;
 import org.elasticsearch.search.suggest.phrase.DirectCandidateGeneratorBuilder;
 import org.elasticsearch.search.suggest.phrase.PhraseSuggestionBuilder;
 import org.elasticsearch.search.suggest.term.TermSuggestionBuilder;
@@ -64,6 +67,7 @@ import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.IndexSettingsModule;
 import org.elasticsearch.watcher.ResourceWatcherService;
 import org.junit.AfterClass;
+import org.junit.Before;
 import org.junit.BeforeClass;
 
 import java.io.IOException;
@@ -71,6 +75,7 @@ import java.util.*;
 import java.util.function.Supplier;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.not;
 
 public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBuilder<SB>, CB extends SuggestionSearchContext.SuggestionContext> extends ESTestCase {
@@ -88,6 +93,64 @@ public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBui
     private static MapperRegistry mapperRegistry;
     private static Supplier<QueryShardContext> queryShardContextSupplier;
     private static Settings commonSettings;
+
+    private static List<Object> builders = null;
+
+    private List<SB> getRandomTestBuilders() {
+        if (builders == null) {
+            builders = new LinkedList<>();
+            for (int runs = 0; runs < NUMBER_OF_TESTBUILDERS; runs++) {
+                builders.add(randomTestBuilder());
+            }
+        }
+        final List<SB> typedBuilders = new LinkedList<>();
+        for (Object builderObj : builders) {
+            typedBuilders.add((SB) builderObj);
+        }
+        return typedBuilders;
+    }
+
+    private static boolean mapperServiceInitialized = false;
+
+    @Before
+    public void initializeMapperService() throws IOException {
+        if (!mapperServiceInitialized) {
+            Map<String, String> fields = new HashMap<>();
+            List<String> analyzers = new LinkedList<>();
+            for (SB suggestionBuilder : getRandomTestBuilders()) {
+                fields.put(suggestionBuilder.field(), "text");
+                if (suggestionBuilder.analyzer() != null) {
+                    analyzers.add(suggestionBuilder.analyzer());
+                }
+                if (suggestionBuilder instanceof PhraseSuggestionBuilder) {
+                    PhraseSuggestionBuilder psb = (PhraseSuggestionBuilder) suggestionBuilder;
+                    Map<String, List<PhraseSuggestionBuilder.CandidateGenerator>> generators = psb.getCandidateGenerators();
+                    if (generators != null && generators.size() > 0) {
+                        for (Map.Entry<String, List<PhraseSuggestionBuilder.CandidateGenerator>> generatorEntry : generators.entrySet()) {
+                            for (PhraseSuggestionBuilder.CandidateGenerator generator : generatorEntry.getValue()) {
+                                if (generator instanceof DirectCandidateGeneratorBuilder) {
+                                    DirectCandidateGeneratorBuilder genBuilder = (DirectCandidateGeneratorBuilder) generator;
+                                    String preFilter = genBuilder.getPreFilter();
+                                    if (preFilter != null) {
+                                        analyzers.add(preFilter);
+                                    }
+                                    String postFilter = genBuilder.getPostFilter();
+                                    if (postFilter != null) {
+                                        analyzers.add(postFilter);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (suggestionBuilder instanceof CompletionSuggestionBuilder) {
+                    CompletionSuggestionBuilder csb = (CompletionSuggestionBuilder) suggestionBuilder;
+                    csb.getPayloadFields();
+                }
+            }
+            resetMapperService(analyzers, fields);
+            mapperServiceInitialized = true;
+        }
+    }
 
     /**
      * setup for the whole base test class
@@ -148,7 +211,7 @@ public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBui
             }
         };
 
-        resetMapperService(null, null);
+        //resetMapperService(null, null);
     }
 
     private static class MockMustacheScriptEngine extends MockScriptEngine {
@@ -205,8 +268,7 @@ public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBui
      * Test serialization and deserialization of the suggestion builder
      */
     public void testSerialization() throws IOException {
-        for (int runs = 0; runs < NUMBER_OF_TESTBUILDERS; runs++) {
-            SB original = randomTestBuilder();
+        for (SB original : getRandomTestBuilders()) {
             SB deserialized = serializedCopy(original);
             assertEquals(deserialized, original);
             assertEquals(deserialized.hashCode(), original.hashCode());
@@ -227,9 +289,6 @@ public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBui
         maybeSet(randomSuggestion::prefix, randomAsciiOfLengthBetween(2, 20));
         maybeSet(randomSuggestion::regex, randomAsciiOfLengthBetween(2, 20));
         maybeSet(randomSuggestion::analyzer, randomAsciiOfLengthBetween(2, 20));
-        if (!Strings.isNullOrEmpty(randomSuggestion.analyzer())) {
-
-        }
         maybeSet(randomSuggestion::size, randomIntBetween(1, 20));
         maybeSet(randomSuggestion::shardSize, randomIntBetween(1, 20));
     }
@@ -243,8 +302,7 @@ public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBui
      * Test equality and hashCode properties
      */
     public void testEqualsAndHashcode() throws IOException {
-        for (int runs = 0; runs < NUMBER_OF_TESTBUILDERS; runs++) {
-            SB firstBuilder = randomTestBuilder();
+        for (SB firstBuilder : getRandomTestBuilders()) {
             assertFalse("suggestion builder is equal to null", firstBuilder.equals(null));
             assertFalse("suggestion builder is equal to incompatible type", firstBuilder.equals(""));
             assertTrue("suggestion builder is not equal to self", firstBuilder.equals(firstBuilder));
@@ -278,8 +336,7 @@ public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBui
      * instance that should be equal to original
      */
     public void testFromXContent() throws IOException {
-        for (int runs = 0; runs < NUMBER_OF_TESTBUILDERS; runs++) {
-            SB suggestionBuilder = randomTestBuilder();
+        for (SB suggestionBuilder : getRandomTestBuilders()) {
             XContentBuilder xContentBuilder = XContentFactory.contentBuilder(randomFrom(XContentType.values()));
             if (randomBoolean()) {
                 xContentBuilder.prettyPrint();
@@ -302,38 +359,52 @@ public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBui
     }
 
     public void testSearchContext() throws IOException {
-        for (int runs = 0; runs < NUMBER_OF_TESTBUILDERS; runs++) {
-            SB suggestionBuilder = randomTestBuilder();
-            List<String> analyzers = new LinkedList<>();
-            if (suggestionBuilder.analyzer() != null) {
-                analyzers.add(suggestionBuilder.analyzer());
-            }
-            if (suggestionBuilder instanceof PhraseSuggestionBuilder) {
-                PhraseSuggestionBuilder psb = (PhraseSuggestionBuilder) suggestionBuilder;
-                Map<String, List<PhraseSuggestionBuilder.CandidateGenerator>> generators = psb.getCandidateGenerators();
-                if (generators != null && generators.size() > 0) {
-                    for (Map.Entry<String, List<PhraseSuggestionBuilder.CandidateGenerator>> generatorEntry : generators.entrySet()) {
-                        for (PhraseSuggestionBuilder.CandidateGenerator generator : generatorEntry.getValue()) {
-                            if (generator instanceof DirectCandidateGeneratorBuilder) {
-                                DirectCandidateGeneratorBuilder genBuilder = (DirectCandidateGeneratorBuilder) generator;
-                                String preFilter = genBuilder.getPreFilter();
-                                if (preFilter != null) {
-                                    analyzers.add(preFilter);
-                                }
-                                String postFilter = genBuilder.getPostFilter();
-                                if (postFilter != null) {
-                                    analyzers.add(postFilter);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Map<String, String> fields = new HashMap<>();
-            fields.put(suggestionBuilder.field(), "text");
-            resetMapperService(analyzers, fields);
+        for (SB suggestionBuilder : getRandomTestBuilders()) {
+            final CB context = (CB) suggestionBuilder.build(queryShardContextSupplier.get());
+            assertCommonSuggestionSearchContext(suggestionBuilder, context);
+            assertSuggestionSearchContext(suggestionBuilder, context);
+        }
+    }
 
-            assertSuggestionSearchContext(suggestionBuilder, (CB) suggestionBuilder.build(queryShardContextSupplier.get()));
+    private void assertCommonSuggestionSearchContext(SB suggestionBuilder, CB context) {
+        assertSame(suggestionBuilder.field(), context.getField());
+        final String analyzer = suggestionBuilder.analyzer();
+        if (!Strings.isNullOrEmpty(analyzer)) {
+            assertThat(context.getAnalyzer(), instanceOf(NamedAnalyzer.class));
+            assertSame(analyzer, ((NamedAnalyzer) context.getAnalyzer()).name());
+        }
+
+        assertEquals(suggestionBuilder.text(), context.getText().utf8ToString());
+
+        final BytesRef ctxRegex = context.getRegex();
+        if (ctxRegex != null) {
+            assertEquals(suggestionBuilder.regex(), ctxRegex.utf8ToString());
+        } else {
+            assertNull(suggestionBuilder.regex());
+        }
+
+        final BytesRef ctxPrefix = context.getPrefix();
+        if (ctxPrefix != null) {
+            if (suggestionBuilder.prefix() != null) {
+                assertEquals(suggestionBuilder.prefix(), ctxPrefix.utf8ToString());
+            } else {
+                assertEquals(suggestionBuilder.text(), ctxPrefix.utf8ToString());
+            }
+        } else {
+            assertNull(suggestionBuilder.text());
+            assertNull(suggestionBuilder.prefix());
+        }
+
+        if (suggestionBuilder.size() != null) {
+            assertSame(suggestionBuilder.size(), context.getSize());
+        } else {
+            assertEquals(SuggestionSearchContext.SuggestionContext.DEFAULT_SIZE, context.getSize());
+        }
+
+        if (suggestionBuilder.shardSize() != null) {
+            assertSame(suggestionBuilder.shardSize(), context.getShardSize());
+        } else {
+            assertSame(Math.max(context.getSize(), SuggestionBuilder.MIN_SHARD_SIZE), context.getShardSize());
         }
     }
 
@@ -373,7 +444,7 @@ public abstract class AbstractSuggestionBuilderTestCase<SB extends SuggestionBui
                 break;
             }
         } else {
-            mutateSpecificParameters(firstBuilder);
+            mutateSpecificParameters(mutation);
         }
         return mutation;
     }

@@ -42,7 +42,7 @@ import java.util.function.Consumer;
 
 public final class DirectCandidateGeneratorBuilder implements CandidateGenerator {
 
-    private static final String TYPE = "direct_generator";
+    public static final String TYPE = "direct_generator";
 
     static final ParseField DIRECT_GENERATOR_FIELD = new ParseField(TYPE);
     static final ParseField FIELDNAME_FIELD = new ParseField("field");
@@ -162,6 +162,10 @@ public final class DirectCandidateGeneratorBuilder implements CandidateGenerator
         return this;
     }
 
+    public String getSuggestMode() {
+        return suggestMode;
+    }
+
     /**
      * Sets how similar the suggested terms at least need to be compared to
      * the original suggest text tokens. A value between 0 and 1 can be
@@ -175,6 +179,10 @@ public final class DirectCandidateGeneratorBuilder implements CandidateGenerator
         return this;
     }
 
+    public Float getAccuracy() {
+        return accuracy;
+    }
+
     /**
      * Sets the maximum suggestions to be returned per suggest text term.
      */
@@ -184,6 +192,10 @@ public final class DirectCandidateGeneratorBuilder implements CandidateGenerator
         }
         this.size = size;
         return this;
+    }
+
+    public Integer getSize() {
+        return size;
     }
 
     /**
@@ -201,6 +213,10 @@ public final class DirectCandidateGeneratorBuilder implements CandidateGenerator
     public DirectCandidateGeneratorBuilder sort(String sort) {
         this.sort = sort;
         return this;
+    }
+
+    public String getSort() {
+        return sort;
     }
 
     /**
@@ -225,6 +241,10 @@ public final class DirectCandidateGeneratorBuilder implements CandidateGenerator
         return this;
     }
 
+    public String getStringDistance() {
+        return stringDistance;
+    }
+
     /**
      * Sets the maximum edit distance candidate suggestions can have in
      * order to be considered as a suggestion. Can only be a value between 1
@@ -239,6 +259,10 @@ public final class DirectCandidateGeneratorBuilder implements CandidateGenerator
         return this;
     }
 
+    public Integer getMaxEdits() {
+        return maxEdits;
+    }
+
     /**
      * A factor that is used to multiply with the size in order to inspect
      * more candidate suggestions. Can improve accuracy at the cost of
@@ -247,6 +271,10 @@ public final class DirectCandidateGeneratorBuilder implements CandidateGenerator
     public DirectCandidateGeneratorBuilder maxInspections(Integer maxInspections) {
         this.maxInspections = maxInspections;
         return this;
+    }
+
+    public Integer getMaxInspections() {
+        return maxInspections;
     }
 
     /**
@@ -265,6 +293,10 @@ public final class DirectCandidateGeneratorBuilder implements CandidateGenerator
         return this;
     }
 
+    public Float getMaxTermFreq() {
+        return maxTermFreq;
+    }
+
     /**
      * Sets the number of minimal prefix characters that must match in order
      * be a candidate suggestion. Defaults to 1. Increasing this number
@@ -276,6 +308,10 @@ public final class DirectCandidateGeneratorBuilder implements CandidateGenerator
         return this;
     }
 
+    public Integer getPrefixLength() {
+        return prefixLength;
+    }
+
     /**
      * The minimum length a suggest text term must have in order to be
      * corrected. Defaults to <tt>4</tt>.
@@ -283,6 +319,10 @@ public final class DirectCandidateGeneratorBuilder implements CandidateGenerator
     public DirectCandidateGeneratorBuilder minWordLength(int minWordLength) {
         this.minWordLength = minWordLength;
         return this;
+    }
+
+    public Integer getMinWordLength() {
+        return minWordLength;
     }
 
     /**
@@ -296,6 +336,10 @@ public final class DirectCandidateGeneratorBuilder implements CandidateGenerator
     public DirectCandidateGeneratorBuilder minDocFreq(float minDocFreq) {
         this.minDocFreq = minDocFreq;
         return this;
+    }
+
+    public Float getMinDocFreq() {
+        return minDocFreq;
     }
 
     /**

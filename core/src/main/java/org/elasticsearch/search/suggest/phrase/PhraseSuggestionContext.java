@@ -31,12 +31,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 class PhraseSuggestionContext extends SuggestionContext {
     static final boolean DEFAULT_COLLATE_PRUNE = false;
     static final boolean DEFAULT_REQUIRE_UNIGRAM = true;
     static final float DEFAULT_CONFIDENCE = 1.0f;
-    static final int DEFAULT_GRAM_SIZE = 1;
+    public static final int DEFAULT_GRAM_SIZE = 1;
     static final float DEFAULT_RWE_ERRORLIKELIHOOD = 0.95f;
     static final float DEFAULT_MAX_ERRORS = 0.5f;
     static final String DEFAULT_SEPARATOR = " ";
@@ -119,10 +120,12 @@ class PhraseSuggestionContext extends SuggestionContext {
     }
 
     static class DirectCandidateGenerator extends DirectSpellcheckerSettings {
+        public static final int DEFAULT_SIZE = 5;
+
         private Analyzer preFilter;
         private Analyzer postFilter;
         private String field;
-        private int size = 5;
+        private int size = DEFAULT_SIZE;
 
         public String field() {
             return field;

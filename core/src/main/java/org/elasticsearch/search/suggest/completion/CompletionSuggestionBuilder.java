@@ -204,6 +204,10 @@ public class CompletionSuggestionBuilder extends SuggestionBuilder<CompletionSug
         return this;
     }
 
+    public List<String> getPayloadFields() {
+        return Collections.unmodifiableList(this.payloadFields);
+    }
+
     /**
      * Sets query contexts for completion
      * @param queryContexts named query contexts

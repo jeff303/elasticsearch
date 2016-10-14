@@ -40,12 +40,14 @@ public class SuggestionSearchContext {
 
     public abstract static class SuggestionContext {
 
+        public static final int DEFAULT_SIZE = 5;
+
         private BytesRef text;
         private BytesRef prefix;
         private BytesRef regex;
         private String field;
         private Analyzer analyzer;
-        private int size = 5;
+        private int size = DEFAULT_SIZE;
         private int shardSize = -1;
         private QueryShardContext shardContext;
         private Suggester<?> suggester;

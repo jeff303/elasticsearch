@@ -61,6 +61,8 @@ public abstract class SuggestionBuilder<T extends SuggestionBuilder<T>> extends 
     protected static final ParseField SIZE_FIELD = new ParseField("size");
     protected static final ParseField SHARDSIZE_FIELD = new ParseField("shard_size");
 
+    public static final int MIN_SHARD_SIZE = 5;
+
     /**
      * Creates a new suggestion.
      * @param field field to execute suggestions on
@@ -336,7 +338,7 @@ public abstract class SuggestionBuilder<T extends SuggestionBuilder<T>> extends 
             suggestionContext.setShardSize(shardSize);
         } else {
             // if no shard size is set in builder, use size (or at least 5)
-            suggestionContext.setShardSize(Math.max(suggestionContext.getSize(), 5));
+            suggestionContext.setShardSize(Math.max(suggestionContext.getSize(), MIN_SHARD_SIZE));
         }
 
         if (text != null) {

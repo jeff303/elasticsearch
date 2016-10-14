@@ -21,8 +21,6 @@ package org.elasticsearch.search.suggest.term;
 
 import com.carrotsearch.randomizedtesting.generators.RandomStrings;
 
-import org.elasticsearch.common.Strings;
-import org.elasticsearch.index.analysis.NamedAnalyzer;
 import org.elasticsearch.search.suggest.AbstractSuggestionBuilderTestCase;
 import org.elasticsearch.search.suggest.DirectSpellcheckerSettings;
 import org.elasticsearch.search.suggest.SortBy;
@@ -41,7 +39,6 @@ import static org.elasticsearch.search.suggest.DirectSpellcheckerSettings.DEFAUL
 import static org.elasticsearch.search.suggest.DirectSpellcheckerSettings.DEFAULT_MIN_WORD_LENGTH;
 import static org.elasticsearch.search.suggest.DirectSpellcheckerSettings.DEFAULT_PREFIX_LENGTH;
 import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.instanceOf;
 
 /**
  * Test the {@link TermSuggestionBuilder} class.
@@ -58,12 +55,16 @@ public class TermSuggestionBuilderTests extends AbstractSuggestionBuilderTestCas
 
     @Override
     protected void assertSuggestionSearchContext(TermSuggestionBuilder suggestionBuilder, TermSuggestionContext context) {
-        assertSame(suggestionBuilder.field(), context.getField());
-        final String analyzer = suggestionBuilder.analyzer();
-        if (!Strings.isNullOrEmpty(analyzer)) {
-            assertThat(context.getAnalyzer(), instanceOf(NamedAnalyzer.class));
-            assertSame(analyzer, ((NamedAnalyzer) context.getAnalyzer()).name());
-        }
+        assertEquals(suggestionBuilder.accuracy(), context.getDirectSpellCheckerSettings().accuracy(), 0.0f);
+        assertEquals(suggestionBuilder.maxEdits(), context.getDirectSpellCheckerSettings().maxEdits());
+        assertEquals(suggestionBuilder.prefixLength(), context.getDirectSpellCheckerSettings().prefixLength());
+        assertEquals(suggestionBuilder.maxInspections(), context.getDirectSpellCheckerSettings().maxInspections());
+        assertEquals(suggestionBuilder.maxTermFreq(), context.getDirectSpellCheckerSettings().maxTermFreq(), 0.0f);
+        assertEquals(suggestionBuilder.stringDistance().toLucene().getClass(), context.getDirectSpellCheckerSettings().stringDistance().getClass());
+        assertEquals(suggestionBuilder.sort(), context.getDirectSpellCheckerSettings().sort());
+        assertEquals(suggestionBuilder.minWordLength(), context.getDirectSpellCheckerSettings().minWordLength());
+        assertEquals(suggestionBuilder.minDocFreq(), context.getDirectSpellCheckerSettings().minDocFreq(), 0.0f);
+        assertEquals(suggestionBuilder.stringDistance().toLucene().getClass(), context.getDirectSpellCheckerSettings().stringDistance().getClass());
     }
 
     /**

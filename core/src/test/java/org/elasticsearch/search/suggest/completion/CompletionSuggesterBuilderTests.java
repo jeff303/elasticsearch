@@ -50,7 +50,7 @@ public class CompletionSuggesterBuilderTests extends AbstractSuggestionBuilderTe
 
     @Override
     protected void assertSuggestionSearchContext(CompletionSuggestionBuilder suggestionBuilder, CompletionSuggestionContext context) {
-        assertSame(suggestionBuilder.shardSize(), context.getShardSize());
+        context.getPayloadFields().equals(suggestionBuilder.getPayloadFields());
     }
 
     public static CompletionSuggestionBuilder randomCompletionSuggestionBuilder() {
